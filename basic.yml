@@ -1,0 +1,79 @@
+---
+- hosts: isucon
+  sudo: yes
+  vars:
+    - innotop_version : innotop-1.9.1
+  tasks:
+    - name: ensure default packages
+      yum: name={{item}}
+      with_items:
+        - screen
+        - git
+        - sysstat
+        - dstat
+        - make
+        - gcc
+        - gcc-c++
+        - patch
+        - perl-devel
+        - python-devel     
+        - expat-devel
+        - bzip2-devel
+        - gdbm-devel
+        - pcre-devel
+        - libcurl-devel
+        - openssl-devel
+        - libxml2-devel
+        - mysql-server
+        - mysql-devel
+        - perl-DBI
+        - perl-DBD-mysql
+        - perl-TermReadKey       
+    - name: copy dotfiles
+      copy: src=files/dotfiles/{{item}} dest=/home/{{ansible_ssh_user}}/{{item}} owner={{ansible_ssh_user}} mode=0644
+      sudo: no
+      with_items:
+        - .bashrc
+        - .screenrc
+    - name: setup authorized_keys
+      authorized_key: user={{ansible_ssh_user}} key="{{ item }}"
+      with_file:
+        - files/public_keys/tksmd
+    - name: git clone plenv
+      git: repo=git://github.com/tokuhirom/plenv.git dest=/home/{{ansible_ssh_user}}/.plenv update=yes
+      sudo: no
+      tags: plenv_setup
+    - name: git clone perl-build
+      git: repo=git://github.com/tokuhirom/Perl-Build.git dest=/home/{{ansible_ssh_user}}/.plenv/plugins/perl-build update=yes
+      sudo: no
+      tags: plenv_setup
+      notify: plenv rehash
+    - name: git clone pyenv
+      git: repo=git://github.com/yyuu/pyenv.git dest=/home/{{ansible_ssh_user}}/.pyenv update=yes
+      sudo: no
+      tags: pyenv_setup
+      notify: pyenv rehash
+    - name: install nodebrew
+      shell: "[ -d /home/{{ansible_ssh_user}}/.nodebrew/current ] || (curl -L git.io/nodebrew | perl - setup ; echo 1)"
+      sudo: no      
+      register: shell_result
+      changed_when: shell_result.stdout.endswith("1")
+      tags: nodebrew_setup
+    - name: download {{innotop_version}}
+      get_url: url=https://innotop.googlecode.com/files/{{innotop_version}}.tar.gz dest=/usr/local/src/{{innotop_version}}.tar.gz mode=0644
+      notify:
+        - extract innotop
+        - install innotop
+    - name: sysctl vm.swappiness=0
+      sysctl: name=vm.swappiness value=0 state=present      
+  handlers:
+    - name: plenv rehash
+      sudo: no
+      command: plenv rehash
+    - name: pyenv rehash
+      sudo: no
+      command: pyenv rehash      
+    - name: extract innotop
+      command: tar xvf {{innotop_version}}.tar.gz chdir=/usr/local/src
+    - name: install innotop
+      shell: perl Makefile.PL && make install chdir=/usr/local/src/{{innotop_version}}
